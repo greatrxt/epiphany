@@ -23,6 +23,25 @@ const COMMANDS = {
 
 const CONTINUE_ALIASES = new Set(["continue", "c"]);
 const SNAP_ALIASES = new Set(["snap", "camera", "photo"]);
+const VIDEO_ALIASES = new Set(["video", "record", "vid"]);
+
+function isRunCommand(text) {
+  const lower = text.trim().toLowerCase();
+  return lower === "cc" || lower.startsWith("cc ");
+}
+
+function parseRunCommand(text) {
+  const trimmed = text.trim();
+  const rest = trimmed.slice(2).trim(); // strip "cc"
+  if (!rest) return { command: null, args: "" };
+
+  const spaceIdx = rest.indexOf(" ");
+  if (spaceIdx === -1) return { command: rest.toLowerCase(), args: "" };
+
+  const command = rest.slice(0, spaceIdx).toLowerCase();
+  const args = rest.slice(spaceIdx + 1).trim();
+  return { command, args };
+}
 
 function isCommand(text) {
   const lower = text.trim().toLowerCase();
@@ -46,6 +65,7 @@ async function handleHelp() {
     "\u2022 `continue` / `c` \u2014 Resume the most recent terminal Claude session",
     "\u2022 `help` \u2014 Show this message",
     "\u2022 `snap` / `camera` / `photo` \u2014 Take a photo from the MacBook camera",
+    "\u2022 `video [seconds]` / `record [seconds]` \u2014 Record a video (default 5s, max 30s)",
     "\u2022 `status` \u2014 Check if Claude Code is available",
     "",
     "*Project commands:*",
@@ -55,6 +75,10 @@ async function handleHelp() {
     "\u2022 `project show` \u2014 Show the current channel's project binding",
     "\u2022 `project remove` \u2014 Unbind this channel's project",
     "\u2022 `project list` \u2014 List all channel\u2192project bindings",
+    "",
+    "*Custom commands:*",
+    "\u2022 `cc <command> [args]` \u2014 Run a custom Claude Code slash command (e.g. `cc explore 43`)",
+    "\u2022 `cc` \u2014 List all available custom commands for the current project",
     "",
     "*Usage:*",
     "\u2022 Send any message as a DM to start a new Claude conversation",
@@ -76,6 +100,22 @@ async function handleStatus() {
 
 function isSnap(text) {
   return SNAP_ALIASES.has(text.trim().toLowerCase());
+}
+
+function isVideo(text) {
+  const lower = text.trim().toLowerCase();
+  // "video", "video 10", "record 5", etc.
+  const first = lower.split(/\s+/)[0];
+  return VIDEO_ALIASES.has(first);
+}
+
+function parseVideoDuration(text) {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length > 1) {
+    const secs = parseInt(parts[1], 10);
+    if (!isNaN(secs) && secs >= 1 && secs <= 30) return secs;
+  }
+  return 5; // default 5 seconds
 }
 
 // --- Project commands ---
@@ -283,8 +323,12 @@ module.exports = {
   isCommand,
   isContinue,
   isSnap,
+  isVideo,
+  parseVideoDuration,
   handleCommand,
   isProjectCommand,
   parseProjectCommand,
   handleProjectCommand,
+  isRunCommand,
+  parseRunCommand,
 };

@@ -10,10 +10,14 @@ const {
   isCommand,
   isContinue,
   isSnap,
+  isVideo,
+  parseVideoDuration,
   handleCommand,
   isProjectCommand,
   parseProjectCommand,
   handleProjectCommand,
+  isRunCommand,
+  parseRunCommand,
 } = require("./commands");
 const { execFile } = require("child_process");
 const fs = require("fs");
@@ -63,10 +67,46 @@ async function removeReaction(client, channel, timestamp) {
   } catch {}
 }
 
+// Extract [FILE]: /path lines from response, return { cleanText, filePaths }
+function extractFiles(text) {
+  const filePaths = [];
+  const cleanLines = [];
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\[FILE\]:\s*(.+)$/);
+    if (match) {
+      const fp = match[1].trim();
+      if (fs.existsSync(fp)) filePaths.push(fp);
+    } else {
+      cleanLines.push(line);
+    }
+  }
+  return { cleanText: cleanLines.join("\n").trim(), filePaths };
+}
+
+async function uploadFiles(client, channel, filePaths) {
+  for (const fp of filePaths) {
+    try {
+      await client.filesUploadV2({
+        channel_id: channel,
+        file: fs.createReadStream(fp),
+        filename: path.basename(fp),
+      });
+    } catch (err) {
+      console.error(`Failed to upload ${fp}:`, err.message);
+    }
+  }
+}
+
 async function postResponse(client, channel, text) {
-  const chunks = splitMessage(text);
-  for (const chunk of chunks) {
-    await client.chat.postMessage({ channel, text: chunk });
+  const { cleanText, filePaths } = extractFiles(text);
+  if (cleanText) {
+    const chunks = splitMessage(cleanText);
+    for (const chunk of chunks) {
+      await client.chat.postMessage({ channel, text: chunk });
+    }
+  }
+  if (filePaths.length > 0) {
+    await uploadFiles(client, channel, filePaths);
   }
 }
 
@@ -205,6 +245,45 @@ async function handleSnap(client, channel, messageTs) {
   }
 }
 
+// Record video and upload to Slack
+const VIDEO_PATH = path.join(__dirname, "..", "data", "video.mp4");
+
+async function handleVideo(client, channel, messageTs, duration) {
+  try {
+    await postResponse(client, channel, `:movie_camera: Recording ${duration}s video...`);
+
+    await new Promise((resolve, reject) => {
+      // ffmpeg: capture from default camera via AVFoundation
+      const args = [
+        "-f", "avfoundation",
+        "-framerate", "30",
+        "-video_size", "1280x720",
+        "-i", "0",
+        "-t", String(duration),
+        "-y",
+        VIDEO_PATH,
+      ];
+      execFile("ffmpeg", args, { timeout: (duration + 10) * 1000 }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    await removeReaction(client, channel, messageTs);
+
+    await client.filesUploadV2({
+      channel_id: channel,
+      file: fs.createReadStream(VIDEO_PATH),
+      filename: `video_${Date.now()}.mp4`,
+      initial_comment: `:movie_camera: Here's a ${duration}s video!`,
+    });
+  } catch (err) {
+    await removeReaction(client, channel, messageTs);
+    console.error("Video error:", err);
+    await postResponse(client, channel, `:x: Video error: ${err.message}`);
+  }
+}
+
 // Handle the main message flow
 async function handlePrompt(client, channel, messageTs, text, sessionOpts) {
   const result = await claude.run(sessionOpts);
@@ -269,9 +348,72 @@ app.event("message", async ({ event, client }) => {
       return;
     }
 
+    // "cc <command> [args]" — execute a custom Claude Code slash command
+    if (isRunCommand(text)) {
+      const cwd = projects.get(channel);
+      if (!cwd) {
+        await removeReaction(client, channel, messageTs);
+        await postResponse(client, channel, ":x: No project bound to this channel. Use `project set` to bind one first.");
+        return;
+      }
+
+      const commandsDir = path.join(cwd, ".claude", "commands");
+      const { command, args } = parseRunCommand(text);
+
+      // Bare "run" — list available commands
+      if (!command) {
+        await removeReaction(client, channel, messageTs);
+        let files = [];
+        try {
+          files = fs.readdirSync(commandsDir).filter((f) => f.endsWith(".md"));
+        } catch {}
+        if (files.length === 0) {
+          await postResponse(client, channel, `:warning: No custom commands found in \`${commandsDir}\``);
+        } else {
+          const names = files.map((f) => `\u2022 \`${f.replace(/\.md$/, "")}\``);
+          await postResponse(client, channel, `*Available custom commands:*\n${names.join("\n")}\n\nUsage: \`cc <command> [args]\``);
+        }
+        return;
+      }
+
+      // Resolve the command file
+      const cmdFile = path.join(commandsDir, `${command}.md`);
+      if (!fs.existsSync(cmdFile)) {
+        await removeReaction(client, channel, messageTs);
+        let files = [];
+        try {
+          files = fs.readdirSync(commandsDir).filter((f) => f.endsWith(".md"));
+        } catch {}
+        const available = files.length > 0
+          ? `\nAvailable commands: ${files.map((f) => `\`${f.replace(/\.md$/, "")}\``).join(", ")}`
+          : "";
+        await postResponse(client, channel, `:x: Unknown command \`${command}\`.${available}`);
+        return;
+      }
+
+      // Read template, replace $ARGUMENTS, send to Claude
+      const template = fs.readFileSync(cmdFile, "utf-8");
+      const prompt = template.replace(/\$ARGUMENTS/g, args);
+
+      const sessionId = sessions.get(channel);
+      const sessionOpts = sessionId
+        ? { prompt, resume: sessionId, cwd }
+        : { prompt, cwd };
+
+      await handlePrompt(client, channel, messageTs, text, sessionOpts);
+      return;
+    }
+
     // "snap" — capture photo from camera and upload to Slack
     if (isSnap(text)) {
       await handleSnap(client, channel, messageTs);
+      return;
+    }
+
+    // "video [seconds]" — record video and upload to Slack
+    if (isVideo(text)) {
+      const duration = parseVideoDuration(text);
+      await handleVideo(client, channel, messageTs, duration);
       return;
     }
 

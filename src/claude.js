@@ -7,8 +7,10 @@ const SLACK_CONTEXT = [
   "You are being used through a Slack integration, not a terminal.",
   "The user is chatting with you from Slack.",
   "Your responses will be displayed as Slack messages (markdown formatting works).",
-  "You cannot open files, URLs, or images in a browser/viewer — the user has no terminal visible.",
-  "If the user asks to see something, output the content as text in your response.",
+  "You cannot open URLs in a browser — the user has no terminal visible.",
+  "To send a file to the user, include its absolute path on a line by itself prefixed with [FILE]: for example: [FILE]: /path/to/image.png",
+  "The integration will automatically upload that file to Slack. You can send images, text files, PDFs, etc.",
+  "If the user asks to see something and there's no file, output the content as text in your response.",
 ].join(" ");
 
 function run({ prompt, sessionId, resume, continueSession, allowedTools, cwd, context }) {
