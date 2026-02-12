@@ -1,0 +1,16 @@
+{
+  "name": "epiphany",
+  "version": "1.0.0",
+  "description": "Epiphany — interact with Claude Code on your Mac via Slack",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": ["slack", "claude", "cli", "bridge"],
+  "license": "MIT",
+  "dependencies": {
+    "@slack/bolt": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "uuid": "^11.1.0"
+  }
+}

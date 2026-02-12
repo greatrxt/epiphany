@@ -1,0 +1,10 @@
+node_modules/
+.env
+.DS_Store
+data/sessions.json
+data/projects.json
+data/app.log
+data/app.err
+data/history/
+data/snap.jpg
+data/test_snap.jpg
