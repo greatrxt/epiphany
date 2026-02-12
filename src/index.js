@@ -454,24 +454,35 @@ app.event("message", async ({ event, client }) => {
 });
 
 // --- Slack action: Allow button clicked ---
-app.action(/^allow_perm_/, async ({ action, ack, client }) => {
+app.action(/^allow_perm_/, async ({ action, ack, client, body }) => {
   await ack();
 
   const actionId = action.action_id.replace("allow_", "");
   const pending = pendingPermissions.get(actionId);
-  if (!pending) return;
+  const channel = pending?.channel || body.channel?.id;
+
+  if (!pending) {
+    console.error("Allow clicked but no pending permission found:", actionId);
+    if (channel) {
+      await client.chat.postMessage({
+        channel,
+        text: ":warning: Permission request expired (app may have restarted). Please re-send your message.",
+      });
+    }
+    return;
+  }
   pendingPermissions.delete(actionId);
 
-  const { channel, prompt, sessionId, denials } = pending;
+  const { prompt, sessionId, denials } = pending;
   const allowedTools = buildAllowedTools(denials);
   const cwd = projects.get(channel) || undefined;
 
-  await client.chat.postMessage({
-    channel,
-    text: `:white_check_mark: Approved. Retrying with permission for: ${allowedTools.join(", ")}`,
-  });
-
   try {
+    await client.chat.postMessage({
+      channel,
+      text: `:white_check_mark: Approved. Retrying with permission for: ${allowedTools.join(", ")}`,
+    });
+
     const result = await claude.run({
       prompt: prompt || "Please retry the previously denied operations.",
       resume: sessionId,
@@ -482,7 +493,9 @@ app.action(/^allow_perm_/, async ({ action, ack, client }) => {
     await postClaudeResult(client, channel, result, prompt);
   } catch (err) {
     console.error("Error retrying with permissions:", err);
-    await postResponse(client, channel, `:x: Retry failed: ${err.message}`);
+    try {
+      await postResponse(client, channel, `:x: Retry failed: ${err.message}`);
+    } catch {}
   }
 });
 
