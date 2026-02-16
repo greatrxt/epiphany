@@ -3,6 +3,14 @@ const { v4: uuidv4 } = require("uuid");
 
 const TIMEOUT = parseInt(process.env.CLAUDE_TIMEOUT, 10) || 300_000;
 
+// Strip env vars that make spawned Claude CLI think it's nested inside another session
+function cleanEnv() {
+  const env = { ...process.env };
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDECODE;
+  return env;
+}
+
 const SLACK_CONTEXT = [
   "You are being used through a Slack integration, not a terminal.",
   "The user is chatting with you from Slack.",
@@ -46,7 +54,7 @@ function run({ prompt, sessionId, resume, continueSession, allowedTools, cwd, co
     let resultEvent = null;
 
     const spawnOpts = {
-      env: { ...process.env },
+      env: cleanEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     };
     if (cwd) spawnOpts.cwd = cwd;
@@ -119,10 +127,13 @@ function run({ prompt, sessionId, resume, continueSession, allowedTools, cwd, co
       }
 
       if (resultEvent) {
+        const errorMsg = resultEvent.is_error
+          ? resultEvent.result || (resultEvent.errors && resultEvent.errors[0]) || "Unknown error"
+          : null;
         settle({
           response: resultEvent.result || null,
           sessionId: resultEvent.session_id || null,
-          error: resultEvent.is_error ? resultEvent.result : null,
+          error: errorMsg,
           permissionDenials: resultEvent.permission_denials || [],
         });
         return;

@@ -46,7 +46,7 @@ function saveSession(sessionId) {
   });
 }
 
-function append(sessionId, { role, text, source, channel }) {
+function append(sessionId, { role, text, source, channel, threadTs }) {
   const messages = readSession(sessionId);
   messages.push({
     id: uuidv4(),
@@ -56,6 +56,7 @@ function append(sessionId, { role, text, source, channel }) {
     text,
     source: source || "slack",
     channel: channel || null,
+    threadTs: threadTs || null,
   });
   saveSession(sessionId);
 }

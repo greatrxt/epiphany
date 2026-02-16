@@ -8,3 +8,8 @@ data/app.err
 data/history/
 data/snap.jpg
 data/test_snap.jpg
+data/video.mp4
+data/schedules.json
+.playwright-mcp/
+slack-*.png
+slack-*.md

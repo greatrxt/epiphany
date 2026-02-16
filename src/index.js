@@ -271,6 +271,10 @@ async function postWithPermissionRequest(client, channel, threadTs, result) {
 // Post Claude result — shared by handlePrompt and allow handler
 async function postClaudeResult(client, channel, threadTs, result, originalPrompt) {
   if (result.error) {
+    // If session not found, clear stale session so next message starts fresh
+    if (/no conversation found/i.test(result.error)) {
+      sessions.clear(channel, threadTs);
+    }
     await postResponse(client, channel, `:x: ${result.error}`, threadTs);
     return;
   }
